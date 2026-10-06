@@ -53,6 +53,7 @@ scene.add(grid);
 
 // 3. Variables
 let mixer, character, current;
+let jumping = false;
 const actions = {};
 const clock = new THREE.Clock();
 const loader = new THREE.FBXLoader();
@@ -119,6 +120,12 @@ loader.load('personaje.fbx', function (object) {
     mixer = new THREE.AnimationMixer(character);
     loadAnim('idle', 'idle.fbx');
     loadAnim('walk', 'walk.fbx');
+    loadAnim('jump', 'Jump.fbx');
+
+    // Al terminar el salto, se vuelve a idle/walk
+    mixer.addEventListener('finished', e => {
+        if (e.action === actions.jump) jumping = false;
+    });
 }, undefined, function (error) {
     console.error('Error cargando personaje.fbx:', error);
     showError('Error al cargar personaje.fbx (mira la consola)');
@@ -142,6 +149,10 @@ function loadAnim(name, file) {
         });
 
         actions[name] = mixer.clipAction(clip);
+        if (name === 'jump') {
+            actions[name].setLoop(THREE.LoopOnce, 1);   // se reproduce una sola vez
+            actions[name].clampWhenFinished = true;
+        }
         if (name === 'idle') playAction('idle');
     }, undefined, () => console.warn('No se pudo cargar ' + file));
 }
@@ -152,6 +163,15 @@ function playAction(name) {
     next.reset().fadeIn(0.25).play();
     if (current) current.fadeOut(0.25);
     current = next;
+}
+
+function startJump() {
+    const a = actions.jump;
+    if (!a || jumping) return;
+    jumping = true;
+    a.reset().fadeIn(0.1).play();
+    if (current) current.fadeOut(0.1);
+    current = a;
 }
 
 // 5. Entrada: joystick + teclado
@@ -171,8 +191,14 @@ joystick.on('move', (evt, data) => {
 });
 joystick.on('end', () => { input.x = 0; input.y = 0; });
 
-window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if (e.code === 'Space') { e.preventDefault(); startJump(); }
+});
 window.addEventListener('keyup', e => keys[e.code] = false);
+
+const jumpBtn = document.getElementById('jump-btn');
+jumpBtn.addEventListener('pointerdown', e => { e.preventDefault(); startJump(); });
 
 // 6. Bucle del juego
 function animate() {
@@ -195,9 +221,9 @@ function animate() {
             const len = Math.hypot(dx, dz);
             character.position.x += (dx / len) * mag * SPEED * delta;
             character.position.z += (dz / len) * mag * SPEED * delta;
-            playAction('walk');
+            if (!jumping) playAction('walk');
         } else {
-            playAction('idle');
+            if (!jumping) playAction('idle');
         }
 
         camera.position.set(character.position.x, character.position.y + CAM_HEIGHT, character.position.z - CAM_DIST);
