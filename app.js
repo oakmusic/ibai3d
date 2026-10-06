@@ -74,8 +74,8 @@ loader.load('personaje.fbx', function (object) {
 
         const mat = new THREE.MeshStandardMaterial({
     map: colorMap,
-    normalMap: normalMap,
-    roughnessMap: roughnessMap,
+    //normalMap: normalMap,
+    //roughnessMap: roughnessMap,
     metalness: 0,      // sin metal: así se ve el color de la textura
     roughness: 1,
     side: THREE.DoubleSide,
