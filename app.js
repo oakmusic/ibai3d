@@ -2,11 +2,24 @@
 const TEX = {
     color:     'texture_pbr_20250901.png',
     normal:    'texture_pbr_20250901_normal.png',
-    metallic:  'texture_pbr_20250901_metallic.png',
     roughness: 'texture_pbr_20250901_roughness.png'
 };
-const SPEED = 3.0;         // unidades por segundo
-const CHAR_HEIGHT = 1.8;   // altura del personaje en el juego
+// 'basic'    = sin luces (test: si así se ve con color, la textura está bien)
+// 'standard' = con luces, normal y roughness
+// 'original' = deja el material que trae el propio FBX
+const MATERIAL_MODE = 'basic';
+const SPEED = 3.0;
+const CHAR_HEIGHT = 1.8;
+
+// Mostrar cualquier error en pantalla
+function showError(msg) {
+    const el = document.getElementById('loading');
+    el.style.display = 'block';
+    el.style.maxWidth = '80%';
+    el.textContent = msg;
+}
+window.addEventListener('error', e => showError('Error: ' + e.message));
+window.addEventListener('unhandledrejection', e => showError('Error: ' + e.reason));
 
 // 1. Escena, cámara y renderizador
 const scene = new THREE.Scene();
@@ -46,14 +59,12 @@ loader.load('personaje.fbx', function (object) {
     document.getElementById('loading').style.display = 'none';
     character = object;
 
-    // Escala automática y pies en el suelo
     const box = new THREE.Box3().setFromObject(character);
     character.scale.setScalar(CHAR_HEIGHT / (box.max.y - box.min.y));
     character.position.set(0, 0, 0);
     const box2 = new THREE.Box3().setFromObject(character);
     character.position.y -= box2.min.y;
 
-    // Texturas PBR
     const texLoader = new THREE.TextureLoader();
     const load = (url, srgb) => {
         const t = texLoader.load(url, undefined, undefined,
@@ -63,7 +74,6 @@ loader.load('personaje.fbx', function (object) {
     };
     const colorMap     = load(TEX.color, true);
     const normalMap    = load(TEX.normal, false);
-    const metallicMap  = load(TEX.metallic, false);
     const roughnessMap = load(TEX.roughness, false);
 
     character.traverse(child => {
@@ -72,13 +82,31 @@ loader.load('personaje.fbx', function (object) {
         child.receiveShadow = true;
         child.frustumCulled = false;
 
-        const mat = new THREE.MeshStandardMaterial({
-    const mat = new THREE.MeshBasicMaterial({
-    map: colorMap,
-    side: THREE.DoubleSide,
-    skinning: !!child.isSkinnedMesh
-});
-console.log('UV:', !!child.geometry.attributes.uv, 'normales:', !!child.geometry.attributes.normal, 'mesh:', child.name);
+        console.log('Mesh:', child.name,
+            '| UV:', !!child.geometry.attributes.uv,
+            '| normales:', !!child.geometry.attributes.normal,
+            '| skinned:', !!child.isSkinnedMesh);
+
+        if (MATERIAL_MODE === 'original') return;
+
+        let mat;
+        if (MATERIAL_MODE === 'basic') {
+            mat = new THREE.MeshBasicMaterial({
+                map: colorMap,
+                side: THREE.DoubleSide,
+                skinning: !!child.isSkinnedMesh
+            });
+        } else {
+            mat = new THREE.MeshStandardMaterial({
+                map: colorMap,
+                normalMap: normalMap,
+                roughnessMap: roughnessMap,
+                metalness: 0,
+                roughness: 1,
+                side: THREE.DoubleSide,
+                skinning: !!child.isSkinnedMesh
+            });
+        }
         child.material = Array.isArray(child.material)
             ? child.material.map(() => mat)
             : mat;
@@ -90,10 +118,9 @@ console.log('UV:', !!child.geometry.attributes.uv, 'normales:', !!child.geometry
     loadAnim('walk', 'walk.fbx');
 }, undefined, function (error) {
     console.error('Error cargando personaje.fbx:', error);
-    document.getElementById('loading').textContent = 'Error al cargar personaje.fbx';
+    showError('Error al cargar personaje.fbx (mira la consola)');
 });
 
-// Animaciones separadas (Idle / Walking de Mixamo)
 function loadAnim(name, file) {
     loader.load(file, obj => {
         const clip = obj.animations[0];
@@ -143,7 +170,6 @@ function animate() {
         const mag = Math.min(Math.hypot(ix, iy), 1);
 
         if (mag > 0.1) {
-            // La cámara mira hacia +Z: arriba = +Z, derecha en pantalla = -X
             const dx = -ix, dz = iy;
             const target = Math.atan2(dx, dz);
             let diff = target - character.rotation.y;
