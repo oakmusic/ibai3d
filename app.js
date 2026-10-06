@@ -54,6 +54,7 @@ scene.add(grid);
 // 3. Variables
 let mixer, character, current;
 let jumping = false;
+let dancing = false;
 const actions = {};
 const clock = new THREE.Clock();
 const loader = new THREE.FBXLoader();
@@ -121,6 +122,7 @@ loader.load('personaje.fbx', function (object) {
     loadAnim('idle', 'idle.fbx');
     loadAnim('walk', 'walk.fbx');
     loadAnim('jump', 'Jump.fbx');
+    loadAnim('dance', 'Dance.fbx');
 
     // Al terminar el salto, se vuelve a idle/walk
     mixer.addEventListener('finished', e => {
@@ -169,9 +171,16 @@ function startJump() {
     const a = actions.jump;
     if (!a || jumping) return;
     jumping = true;
+    dancing = false;
     a.reset().fadeIn(0.1).play();
     if (current) current.fadeOut(0.1);
     current = a;
+}
+
+function toggleDance() {
+    if (!actions.dance || jumping) return;
+    dancing = !dancing;
+    playAction(dancing ? 'dance' : 'idle');
 }
 
 // 5. Entrada: joystick + teclado
@@ -194,11 +203,13 @@ joystick.on('end', () => { input.x = 0; input.y = 0; });
 window.addEventListener('keydown', e => {
     keys[e.code] = true;
     if (e.code === 'Space') { e.preventDefault(); startJump(); }
+    if (e.code === 'KeyB') toggleDance();
 });
 window.addEventListener('keyup', e => keys[e.code] = false);
 
 const jumpBtn = document.getElementById('jump-btn');
 jumpBtn.addEventListener('pointerdown', e => { e.preventDefault(); startJump(); });
+document.getElementById('dance-btn').addEventListener('pointerdown', e => { e.preventDefault(); toggleDance(); });
 
 // 6. Bucle del juego
 function animate() {
@@ -221,9 +232,10 @@ function animate() {
             const len = Math.hypot(dx, dz);
             character.position.x += (dx / len) * mag * SPEED * delta;
             character.position.z += (dz / len) * mag * SPEED * delta;
+            dancing = false;   // moverse corta el baile
             if (!jumping) playAction('walk');
         } else {
-            if (!jumping) playAction('idle');
+            if (!jumping && !dancing) playAction('idle');
         }
 
         camera.position.set(character.position.x, character.position.y + CAM_HEIGHT, character.position.z - CAM_DIST);
