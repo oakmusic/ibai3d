@@ -34,7 +34,7 @@ let moveData = { forward: 0, turn: 0 };
 // 4. Cargar el archivo FBX de Mixamo
 const loader = new THREE.FBXLoader();
 
-loader.load('personaje.fbx', function (object) {
+loader.load('Jump.fbx', function (object) {
     // Si carga bien, quitamos el cartel de "Cargando"
     document.getElementById('loading').style.display = 'none';
     
@@ -105,10 +105,10 @@ function animate() {
         character.position.add(direction.multiplyScalar(moveData.forward * speed * delta));
 
         // Cámara en tercera persona (persigue la espalda)
-        camera.position.x = character.position.x - Math.sin(character.rotation.y) * 5;
-        camera.position.z = character.position.z - Math.cos(character.rotation.y) * 5;
-        camera.position.y = character.position.y + 3; // Altura de la cámara
-        camera.lookAt(character.position.x, character.position.y + 1, character.position.z);
+        //camera.position.x = character.position.x - Math.sin(character.rotation.y) * 5;
+       // camera.position.z = character.position.z - Math.cos(character.rotation.y) * 5;
+       // camera.position.y = character.position.y + 3; // Altura de la cámara
+       // camera.lookAt(character.position.x, character.position.y + 1, character.position.z);
     }
 
     renderer.render(scene, camera);
