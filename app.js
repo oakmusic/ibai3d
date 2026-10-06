@@ -34,7 +34,7 @@ let moveData = { forward: 0, turn: 0 };
 // 4. Cargar el archivo FBX de Mixamo
 const loader = new THREE.FBXLoader();
 
-loader.load('Jump.fbx', function (object) {
+loader.load('personaje.fbx', function (object) {
     document.getElementById('loading').style.display = 'none';
     
     character = object;
