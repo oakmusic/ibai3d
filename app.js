@@ -35,32 +35,49 @@ let moveData = { forward: 0, turn: 0 };
 const loader = new THREE.FBXLoader();
 
 loader.load('Jump.fbx', function (object) {
-    // Si carga bien, quitamos el cartel de "Cargando"
     document.getElementById('loading').style.display = 'none';
     
     character = object;
-    // IMPORTANTE: Reducimos la escala porque los FBX suelen ser inmensos
-    character.scale.set(0.01, 0.01, 0.01); 
+    
+    // SOLUCIÓN 1: La Escala. 
+    // A veces FBXLoader auto-escala el modelo. Si le ponemos 0.01 lo hacemos microscópico.
+    // Cambiémoslo a 1 (Si al recargar se ve un zapato gigante, cámbialo a 0.1 o 0.01).
+    character.scale.set(1, 1, 1); 
+    
+    // Forzamos a que nazca en el centro exacto
+    character.position.set(0, 0, 0);
 
     character.traverse(function (child) {
         if (child.isMesh) {
             child.castShadow = true;
             child.receiveShadow = true;
+            
+            // SOLUCIÓN 2: El "Bug de Cristal" de Mixamo.
+            // Los FBX de Mixamo suelen exportar materiales "transparentes" por error, 
+            // haciéndolos invisibles en Three.js. Esto fuerza a que sean sólidos.
+            if (child.material) {
+                if (Array.isArray(child.material)) {
+                    child.material.forEach(mat => {
+                        mat.transparent = false;
+                        mat.alphaTest = 0.5;
+                    });
+                } else {
+                    child.material.transparent = false;
+                    child.material.alphaTest = 0.5;
+                }
+            }
         }
     });
 
     scene.add(character);
 
-    // Iniciar la animación
     if (character.animations.length > 0) {
         mixer = new THREE.AnimationMixer(character);
         const action = mixer.clipAction(character.animations[0]);
         action.play();
     }
 }, undefined, function (error) {
-    console.error("Error cargando el modelo:", error);
-    document.getElementById('loading').innerText = "Error: ¿Está el archivo Jump.fbx en la carpeta?";
-    document.getElementById('loading').style.color = "red";
+    console.error("Error:", error);
 });
 
 // 5. Joystick Virtual
