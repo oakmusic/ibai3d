@@ -31,54 +31,50 @@ let mixer, character;
 const clock = new THREE.Clock();
 let moveData = { forward: 0, turn: 0 };
 
-// 4. Cargar el archivo FBX de Mixamo
+// 4. Cargar el FBX de Mixamo
 const loader = new THREE.FBXLoader();
 
 loader.load('personaje.fbx', function (object) {
     document.getElementById('loading').style.display = 'none';
-    
     character = object;
-    
-    // SOLUCIÓN 1: La Escala. 
-    // A veces FBXLoader auto-escala el modelo. Si le ponemos 0.01 lo hacemos microscópico.
-    // Cambiémoslo a 1 (Si al recargar se ve un zapato gigante, cámbialo a 0.1 o 0.01).
-    character.scale.set(1, 1, 1); 
-    
-    // Forzamos a que nazca en el centro exacto
+
+    // Escala automática: dejamos el personaje con ~1.8 unidades de alto
+    const box = new THREE.Box3().setFromObject(character);
+    const height = box.max.y - box.min.y;
+    const s = 1.8 / height;
+    character.scale.setScalar(s);
+
+    // Apoyar los pies en el suelo (y = 0)
     character.position.set(0, 0, 0);
+    const box2 = new THREE.Box3().setFromObject(character);
+    character.position.y -= box2.min.y;
 
     character.traverse(function (child) {
         if (child.isMesh) {
             child.castShadow = true;
             child.receiveShadow = true;
-            
-            // SOLUCIÓN 2: El "Bug de Cristal" de Mixamo.
-            // Los FBX de Mixamo suelen exportar materiales "transparentes" por error, 
-            // haciéndolos invisibles en Three.js. Esto fuerza a que sean sólidos.
-            if (child.material) {
-                if (Array.isArray(child.material)) {
-                    child.material.forEach(mat => {
-                        mat.transparent = false;
-                        mat.alphaTest = 0.5;
-                    });
-                } else {
-                    child.material.transparent = false;
-                    child.material.alphaTest = 0.5;
-                }
-            }
+            child.frustumCulled = false; // evita que desaparezca por bounding box mal calculada
+
+            const mats = Array.isArray(child.material) ? child.material : [child.material];
+            mats.forEach(mat => {
+                mat.transparent = false;
+                mat.opacity = 1;      // arregla el bug de opacidad 0 de Mixamo
+                mat.alphaTest = 0;
+                mat.side = THREE.DoubleSide;
+                mat.needsUpdate = true;
+            });
         }
     });
 
     scene.add(character);
-		const skeletonHelper = new THREE.SkeletonHelper(character);
-		scene.add(skeletonHelper);
+
     if (character.animations.length > 0) {
         mixer = new THREE.AnimationMixer(character);
-        const action = mixer.clipAction(character.animations[0]);
-        action.play();
+        mixer.clipAction(character.animations[0]).play();
     }
 }, undefined, function (error) {
-    console.error("Error:", error);
+    console.error("Error cargando personaje.fbx:", error);
+    document.getElementById('loading').textContent = 'Error al cargar personaje.fbx (mira la consola)';
 });
 
 // 5. Joystick Virtual
@@ -112,22 +108,20 @@ function animate() {
 
     // Actualizar movimiento si el modelo ya se cargó
     if (character) {
-        const speed = 4.0;
-        const turnSpeed = 0.05;
+    const speed = 4.0;
+    const turnSpeed = 0.05;
 
-        // Rotación
-        character.rotation.y += moveData.turn * turnSpeed;
+    character.rotation.y += moveData.turn * turnSpeed;
 
-        // Desplazamiento
-        const direction = new THREE.Vector3(0, 0, 1).applyQuaternion(character.quaternion);
-        character.position.add(direction.multiplyScalar(moveData.forward * speed * delta));
+    const direction = new THREE.Vector3(0, 0, 1).applyQuaternion(character.quaternion);
+    character.position.add(direction.multiplyScalar(moveData.forward * speed * delta));
 
-        // Cámara en tercera persona (persigue la espalda)
-        //camera.position.x = character.position.x - Math.sin(character.rotation.y) * 5;
-       // camera.position.z = character.position.z - Math.cos(character.rotation.y) * 5;
-       // camera.position.y = character.position.y + 3; // Altura de la cámara
-       // camera.lookAt(character.position.x, character.position.y + 1, character.position.z);
-    }
+    const camDist = 5;
+    camera.position.x = character.position.x - Math.sin(character.rotation.y) * camDist;
+    camera.position.z = character.position.z - Math.cos(character.rotation.y) * camDist;
+    camera.position.y = character.position.y + 3;
+    camera.lookAt(character.position.x, character.position.y + 1, character.position.z);
+}
 
     renderer.render(scene, camera);
 }
