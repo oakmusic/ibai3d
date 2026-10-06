@@ -1,134 +1,174 @@
-// 1. Configuración de Escena, Cámara y Renderizador
+// ===== Configuración =====
+const TEX = {
+    color:     'texture_pbr_20250901.png',
+    normal:    'texture_pbr_20250901_normal.png',
+    metallic:  'texture_pbr_20250901_metallic.png',
+    roughness: 'texture_pbr_20250901_roughness.png'
+};
+const SPEED = 3.0;         // unidades por segundo
+const CHAR_HEIGHT = 1.8;   // altura del personaje en el juego
+
+// 1. Escena, cámara y renderizador
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87CEEB); // Cielo azul
+scene.background = new THREE.Color(0x87CEEB);
 scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
 
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 2000);
-camera.position.set(0, 3, 10); // Altura 3, Distancia 10
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
+camera.position.set(0, 3, -6);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
-// 2. Luces y Suelo (Cuadrícula)
-const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
-hemiLight.position.set(0, 20, 0);
-scene.add(hemiLight);
-
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-dirLight.position.set(0, 20, 10);
+// 2. Luces y suelo
+scene.add(new THREE.HemisphereLight(0xffffff, 0x888888, 1.0));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+dirLight.position.set(5, 20, 10);
 dirLight.castShadow = true;
 scene.add(dirLight);
 
-const grid = new THREE.GridHelper(200, 40, 0x000000, 0x000000);
+const grid = new THREE.GridHelper(200, 100, 0x000000, 0x000000);
 grid.material.opacity = 0.2;
 grid.material.transparent = true;
 scene.add(grid);
 
-// 3. Variables para el movimiento y animación
-let mixer, character;
+// 3. Variables
+let mixer, character, current;
+const actions = {};
 const clock = new THREE.Clock();
-let moveData = { forward: 0, turn: 0 };
-
-// 4. Cargar el FBX de Mixamo
 const loader = new THREE.FBXLoader();
 
-loader.load('andar.fbx', function (object) {
+// 4. Cargar personaje
+loader.load('personaje.fbx', function (object) {
     document.getElementById('loading').style.display = 'none';
     character = object;
 
-    // Escala automática: dejamos el personaje con ~1.8 unidades de alto
+    // Escala automática y pies en el suelo
     const box = new THREE.Box3().setFromObject(character);
-    const height = box.max.y - box.min.y;
-    const s = 1.8 / height;
-    character.scale.setScalar(s);
-
-    // Apoyar los pies en el suelo (y = 0)
+    character.scale.setScalar(CHAR_HEIGHT / (box.max.y - box.min.y));
     character.position.set(0, 0, 0);
     const box2 = new THREE.Box3().setFromObject(character);
     character.position.y -= box2.min.y;
 
-    character.traverse(function (child) {
-        if (child.isMesh) {
-            child.castShadow = true;
-            child.receiveShadow = true;
-            child.frustumCulled = false; // evita que desaparezca por bounding box mal calculada
+    // Texturas PBR
+    const texLoader = new THREE.TextureLoader();
+    const load = (url, srgb) => {
+        const t = texLoader.load(url, undefined, undefined,
+            () => console.warn('No se encontró ' + url));
+        if (srgb) t.encoding = THREE.sRGBEncoding;
+        return t;
+    };
+    const colorMap     = load(TEX.color, true);
+    const normalMap    = load(TEX.normal, false);
+    const metallicMap  = load(TEX.metallic, false);
+    const roughnessMap = load(TEX.roughness, false);
 
-            const mats = Array.isArray(child.material) ? child.material : [child.material];
-            mats.forEach(mat => {
-                mat.transparent = false;
-                mat.opacity = 1;      // arregla el bug de opacidad 0 de Mixamo
-                mat.alphaTest = 0;
-                mat.side = THREE.DoubleSide;
-                mat.needsUpdate = true;
-            });
-        }
+    character.traverse(child => {
+        if (!child.isMesh) return;
+        child.castShadow = true;
+        child.receiveShadow = true;
+        child.frustumCulled = false;
+
+        const mat = new THREE.MeshStandardMaterial({
+            map: colorMap,
+            normalMap: normalMap,
+            metalnessMap: metallicMap,
+            roughnessMap: roughnessMap,
+            metalness: 1,
+            roughness: 1,
+            side: THREE.DoubleSide,
+            skinning: !!child.isSkinnedMesh
+        });
+        child.material = Array.isArray(child.material)
+            ? child.material.map(() => mat)
+            : mat;
     });
 
     scene.add(character);
-
-    if (character.animations.length > 0) {
-        mixer = new THREE.AnimationMixer(character);
-        mixer.clipAction(character.animations[0]).play();
-    }
+    mixer = new THREE.AnimationMixer(character);
+    loadAnim('idle', 'idle.fbx');
+    loadAnim('walk', 'walk.fbx');
 }, undefined, function (error) {
-    console.error("Error cargando personaje.fbx:", error);
-    document.getElementById('loading').textContent = 'Error al cargar personaje.fbx (mira la consola)';
+    console.error('Error cargando personaje.fbx:', error);
+    document.getElementById('loading').textContent = 'Error al cargar personaje.fbx';
 });
 
-// 5. Joystick Virtual
+// Animaciones separadas (Idle / Walking de Mixamo)
+function loadAnim(name, file) {
+    loader.load(file, obj => {
+        const clip = obj.animations[0];
+        if (!clip) return;
+        actions[name] = mixer.clipAction(clip);
+        if (name === 'idle') playAction('idle');
+    }, undefined, () => console.warn('No se pudo cargar ' + file));
+}
+
+function playAction(name) {
+    const next = actions[name];
+    if (!next || next === current) return;
+    next.reset().fadeIn(0.25).play();
+    if (current) current.fadeOut(0.25);
+    current = next;
+}
+
+// 5. Entrada: joystick + teclado
+const input = { x: 0, y: 0 };
+const keys = {};
+
 const joystick = nipplejs.create({
     zone: document.getElementById('joystick-zone'),
     mode: 'static',
-    position: { left: '100px', bottom: '100px' },
+    position: { left: '75px', bottom: '75px' },
     color: 'white'
 });
-
-joystick.on('move', function (evt, data) {
-    const angle = data.angle.radian;
-    const force = data.force;
-    moveData.forward = Math.sin(angle) * (force * 0.05); // Adelante/atrás
-    moveData.turn = -Math.cos(angle) * (force * 0.05);   // Giro
+joystick.on('move', (evt, data) => {
+    const mag = Math.min(data.force, 1);
+    input.x = data.vector.x * mag;
+    input.y = data.vector.y * mag;
 });
+joystick.on('end', () => { input.x = 0; input.y = 0; });
 
-joystick.on('end', function () {
-    moveData.forward = 0;
-    moveData.turn = 0;
-});
+window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keyup', e => keys[e.code] = false);
 
-// 6. Bucle del Juego (60 FPS)
+// 6. Bucle del juego
 function animate() {
     requestAnimationFrame(animate);
-
     const delta = clock.getDelta();
-
-    // Actualizar animación
     if (mixer) mixer.update(delta);
 
-    // Actualizar movimiento si el modelo ya se cargó
     if (character) {
-    const speed = 4.0;
-    const turnSpeed = 0.05;
+        let ix = input.x + ((keys.KeyD || keys.ArrowRight) ? 1 : 0) - ((keys.KeyA || keys.ArrowLeft) ? 1 : 0);
+        let iy = input.y + ((keys.KeyW || keys.ArrowUp) ? 1 : 0) - ((keys.KeyS || keys.ArrowDown) ? 1 : 0);
+        const mag = Math.min(Math.hypot(ix, iy), 1);
 
-    character.rotation.y += moveData.turn * turnSpeed;
+        if (mag > 0.1) {
+            // La cámara mira hacia +Z: arriba = +Z, derecha en pantalla = -X
+            const dx = -ix, dz = iy;
+            const target = Math.atan2(dx, dz);
+            let diff = target - character.rotation.y;
+            diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+            character.rotation.y += diff * Math.min(1, 10 * delta);
 
-    const direction = new THREE.Vector3(0, 0, 1).applyQuaternion(character.quaternion);
-    character.position.add(direction.multiplyScalar(moveData.forward * speed * delta));
+            const len = Math.hypot(dx, dz);
+            character.position.x += (dx / len) * mag * SPEED * delta;
+            character.position.z += (dz / len) * mag * SPEED * delta;
+            playAction('walk');
+        } else {
+            playAction('idle');
+        }
 
-    const camDist = 5;
-    camera.position.x = character.position.x - Math.sin(character.rotation.y) * camDist;
-    camera.position.z = character.position.z - Math.cos(character.rotation.y) * camDist;
-    camera.position.y = character.position.y + 3;
-    camera.lookAt(character.position.x, character.position.y + 1, character.position.z);
-}
+        camera.position.set(character.position.x, character.position.y + 3, character.position.z - 6);
+        camera.lookAt(character.position.x, character.position.y + 1, character.position.z);
+    }
 
     renderer.render(scene, camera);
 }
-
 animate();
 
-// Ajustar si se rota la pantalla
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
