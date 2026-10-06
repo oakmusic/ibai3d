@@ -73,14 +73,12 @@ loader.load('personaje.fbx', function (object) {
         child.frustumCulled = false;
 
         const mat = new THREE.MeshStandardMaterial({
+    const mat = new THREE.MeshBasicMaterial({
     map: colorMap,
-    //normalMap: normalMap,
-    //roughnessMap: roughnessMap,
-    metalness: 0,      // sin metal: así se ve el color de la textura
-    roughness: 1,
     side: THREE.DoubleSide,
     skinning: !!child.isSkinnedMesh
 });
+console.log('UV:', !!child.geometry.attributes.uv, 'normales:', !!child.geometry.attributes.normal, 'mesh:', child.name);
         child.material = Array.isArray(child.material)
             ? child.material.map(() => mat)
             : mat;
