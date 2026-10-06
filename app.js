@@ -10,6 +10,9 @@ const TEX = {
 const MATERIAL_MODE = 'basic';
 const SPEED = 3.0;
 const CHAR_HEIGHT = 1.8;
+const CAM_DIST = 3.5;     // distancia detrás del personaje (menos = más cerca)
+const CAM_HEIGHT = 1.8;   // altura de la cámara
+const CAM_LOOK = 1.0;     // altura del punto al que mira (1.0 = torso)
 
 // Mostrar cualquier error en pantalla
 function showError(msg) {
@@ -125,6 +128,19 @@ function loadAnim(name, file) {
     loader.load(file, obj => {
         const clip = obj.animations[0];
         if (!clip) return;
+
+        // Quitar el avance de la cadera (X y Z) para que la animación sea "in place"
+        clip.tracks.forEach(track => {
+            if (track.name.toLowerCase().endsWith('hips.position')) {
+                const v = track.values;
+                const x0 = v[0], z0 = v[2];
+                for (let i = 0; i < v.length; i += 3) {
+                    v[i]     = x0;   // X fija
+                    v[i + 2] = z0;   // Z fija
+                }
+            }
+        });
+
         actions[name] = mixer.clipAction(clip);
         if (name === 'idle') playAction('idle');
     }, undefined, () => console.warn('No se pudo cargar ' + file));
@@ -184,8 +200,8 @@ function animate() {
             playAction('idle');
         }
 
-        camera.position.set(character.position.x, character.position.y + 3, character.position.z - 6);
-        camera.lookAt(character.position.x, character.position.y + 1, character.position.z);
+        camera.position.set(character.position.x, character.position.y + CAM_HEIGHT, character.position.z - CAM_DIST);
+        camera.lookAt(character.position.x, character.position.y + CAM_LOOK, character.position.z);
     }
 
     renderer.render(scene, camera);
