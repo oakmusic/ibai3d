@@ -1,5 +1,5 @@
-const CACHE_NAME = 'juego-3d-v4';
-const urlsToCache = ['./', './index.html', './app.js', './manifest.json'];
+const CACHE_NAME = 'juego-3d-v5';
+const urlsToCache = ['./', './index.html', './app.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', event => {
     self.skipWaiting();
