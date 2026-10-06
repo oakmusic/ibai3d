@@ -70,7 +70,8 @@ loader.load('personaje.fbx', function (object) {
     });
 
     scene.add(character);
-
+		const skeletonHelper = new THREE.SkeletonHelper(character);
+		scene.add(skeletonHelper);
     if (character.animations.length > 0) {
         mixer = new THREE.AnimationMixer(character);
         const action = mixer.clipAction(character.animations[0]);
