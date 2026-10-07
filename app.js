@@ -30,7 +30,7 @@ window.addEventListener('unhandledrejection', e => showError('Error: ' + e.reaso
 // 1. Escena, cámara y renderizador
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
-scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
+// (sin niebla: tiñe de azul y no combina con la foto de fondo)
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
 camera.position.set(0, 3, -6);
@@ -68,13 +68,23 @@ const colliders = [];
 
 // Suelo
 const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(200, 200),
+    new THREE.PlaneGeometry(800, 800),
     new THREE.MeshStandardMaterial({ color: 0x8aa57a, roughness: 1 })
 );
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 grid.position.y = 0.01;   // evita parpadeo con el suelo
+
+// Fondo panorámico 360° (foto equirectangular)
+let sky = null;
+new THREE.TextureLoader().load('fondo1.jpg', tex => {
+    tex.encoding = THREE.sRGBEncoding;
+    const geo = new THREE.SphereGeometry(500, 60, 40);
+    geo.scale(-1, 1, 1);   // se mira desde dentro, sin imagen en espejo
+    sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex }));
+    scene.add(sky);
+}, undefined, () => console.warn('No se encontró fondo1.jpg'));
 
 function addBox(x, z, w, d, h, color) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d),
@@ -378,6 +388,8 @@ function animate() {
         camera.position.set(character.position.x, character.position.y + CAM_HEIGHT, character.position.z - CAM_DIST);
         camera.lookAt(character.position.x, character.position.y + CAM_LOOK, character.position.z);
     }
+
+    if (sky) sky.position.copy(camera.position);   // el horizonte siempre queda lejos
 
     renderer.render(scene, camera);
 }
