@@ -44,12 +44,105 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0x888888, 1.0));
 const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
 dirLight.position.set(5, 20, 10);
 dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(2048, 2048);
+dirLight.shadow.camera.left = -25;
+dirLight.shadow.camera.right = 25;
+dirLight.shadow.camera.top = 25;
+dirLight.shadow.camera.bottom = -25;
+dirLight.shadow.camera.far = 80;
 scene.add(dirLight);
+scene.add(dirLight.target);
 
 const grid = new THREE.GridHelper(200, 100, 0x000000, 0x000000);
 grid.material.opacity = 0.2;
 grid.material.transparent = true;
 scene.add(grid);
+
+// ===== Escenario y obstáculos =====
+const WORLD_LIMIT = 40;        // el mapa va de -40 a +40
+const PLAYER_RADIUS = 0.4;     // "grosor" del personaje para chocar
+const colliders = [];
+
+// Suelo
+const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(200, 200),
+    new THREE.MeshStandardMaterial({ color: 0x8aa57a, roughness: 1 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+grid.position.y = 0.01;   // evita parpadeo con el suelo
+
+function addBox(x, z, w, d, h, color) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d),
+        new THREE.MeshStandardMaterial({ color: color, roughness: 0.9 }));
+    m.position.set(x, h / 2, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    scene.add(m);
+    colliders.push({ type: 'box', x: x, z: z, hw: w / 2, hd: d / 2 });
+}
+
+function addCylinder(x, z, r, h, color) {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 24),
+        new THREE.MeshStandardMaterial({ color: color, roughness: 0.9 }));
+    m.position.set(x, h / 2, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    scene.add(m);
+    colliders.push({ type: 'cyl', x: x, z: z, r: r });
+}
+
+// Muros del borde del mapa
+const L = WORLD_LIMIT;
+addBox(0,  L + 0.5, 2 * L + 2, 1, 3, 0x888888);
+addBox(0, -L - 0.5, 2 * L + 2, 1, 3, 0x888888);
+addBox( L + 0.5, 0, 1, 2 * L + 2, 3, 0x888888);
+addBox(-L - 0.5, 0, 1, 2 * L + 2, 3, 0x888888);
+
+// Obstáculos (lejos del punto de salida 0,0)
+addBox(5, 6, 2, 2, 2, 0xb5651d);        // caja
+addBox(-6, 8, 3, 1.5, 1.5, 0xb5651d);   // caja larga
+addBox(8, -4, 1.5, 1.5, 1.5, 0xc98a4b); // caja pequeña
+addCylinder(-5, -6, 0.8, 3, 0x777788);  // columna
+addCylinder(3, -9, 0.8, 3, 0x777788);   // columna
+addCylinder(-10, 2, 1.2, 4, 0x2e7d32);  // "árbol"
+addBox(0, 14, 10, 0.6, 2.5, 0x6a7fa0);  // pared larga
+addBox(14, 4, 0.6, 8, 2.5, 0x6a7fa0);   // pared lateral
+
+function resolveCollisions(pos) {
+    for (const c of colliders) {
+        if (c.type === 'box') {
+            // punto de la caja más cercano al personaje
+            const nx = Math.max(c.x - c.hw, Math.min(pos.x, c.x + c.hw));
+            const nz = Math.max(c.z - c.hd, Math.min(pos.z, c.z + c.hd));
+            const dx = pos.x - nx, dz = pos.z - nz;
+            const dist = Math.hypot(dx, dz);
+            if (dist < PLAYER_RADIUS) {
+                if (dist > 0.0001) {
+                    pos.x = nx + (dx / dist) * PLAYER_RADIUS;
+                    pos.z = nz + (dz / dist) * PLAYER_RADIUS;
+                } else {
+                    // el centro quedó dentro de la caja: sacarlo por el lado más cercano
+                    const px = c.hw - Math.abs(pos.x - c.x);
+                    const pz = c.hd - Math.abs(pos.z - c.z);
+                    if (px < pz) pos.x = c.x + (pos.x >= c.x ? 1 : -1) * (c.hw + PLAYER_RADIUS);
+                    else         pos.z = c.z + (pos.z >= c.z ? 1 : -1) * (c.hd + PLAYER_RADIUS);
+                }
+            }
+        } else {
+            const dx = pos.x - c.x, dz = pos.z - c.z;
+            const dist = Math.hypot(dx, dz);
+            const min = c.r + PLAYER_RADIUS;
+            if (dist < min) {
+                const k = dist > 0.0001 ? min / dist : 0;
+                pos.x = dist > 0.0001 ? c.x + dx * k : c.x + min;
+                pos.z = dist > 0.0001 ? c.z + dz * k : c.z;
+            }
+        }
+    }
+}
+
 
 // 3. Variables
 let mixer, character, current;
@@ -237,6 +330,12 @@ function animate() {
         } else {
             if (!jumping && !dancing) playAction('idle');
         }
+
+        resolveCollisions(character.position);
+
+        // La luz (y sus sombras) sigue al personaje
+        dirLight.position.set(character.position.x + 5, 20, character.position.z + 10);
+        dirLight.target.position.copy(character.position);
 
         camera.position.set(character.position.x, character.position.y + CAM_HEIGHT, character.position.z - CAM_DIST);
         camera.lookAt(character.position.x, character.position.y + CAM_LOOK, character.position.z);
