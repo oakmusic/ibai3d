@@ -10,6 +10,9 @@ const TEX = {
 const MATERIAL_MODE = 'basic';
 const SPEED = 3.0;
 const CHAR_HEIGHT = 1.8;
+const GRAVITY = 18;          // fuerza de gravedad
+const JUMP_SPEED = 6;        // impulso del salto (altura aprox. = 6²/(2·18) = 1 unidad)
+const JUMP_ANIM_SPEED = 1.5; // velocidad de la animación de salto
 const CAM_DIST = 3.5;     // distancia detrás del personaje (menos = más cerca)
 const CAM_HEIGHT = 1.8;   // altura de la cámara
 const CAM_LOOK = 1.0;     // altura del punto al que mira (1.0 = torso)
@@ -80,7 +83,7 @@ function addBox(x, z, w, d, h, color) {
     m.castShadow = true;
     m.receiveShadow = true;
     scene.add(m);
-    colliders.push({ type: 'box', x: x, z: z, hw: w / 2, hd: d / 2 });
+    colliders.push({ type: 'box', x: x, z: z, hw: w / 2, hd: d / 2, top: h });
 }
 
 function addCylinder(x, z, r, h, color) {
@@ -90,7 +93,7 @@ function addCylinder(x, z, r, h, color) {
     m.castShadow = true;
     m.receiveShadow = true;
     scene.add(m);
-    colliders.push({ type: 'cyl', x: x, z: z, r: r });
+    colliders.push({ type: 'cyl', x: x, z: z, r: r, top: h });
 }
 
 // Muros del borde del mapa
@@ -101,17 +104,30 @@ addBox( L + 0.5, 0, 1, 2 * L + 2, 3, 0x888888);
 addBox(-L - 0.5, 0, 1, 2 * L + 2, 3, 0x888888);
 
 // Obstáculos (lejos del punto de salida 0,0)
-addBox(5, 6, 2, 2, 2, 0xb5651d);        // caja
-addBox(-6, 8, 3, 1.5, 1.5, 0xb5651d);   // caja larga
-addBox(8, -4, 1.5, 1.5, 1.5, 0xc98a4b); // caja pequeña
+addBox(5, 6, 2, 2, 0.7, 0xb5651d);      // cubo bajo
+addBox(-6, 8, 3, 1.5, 0.6, 0xb5651d);   // cubo largo bajo
+addBox(8, -4, 1.5, 1.5, 0.5, 0xc98a4b); // cubo pequeño bajo
+addBox(10, 10, 2, 2, 0.5, 0xc98a4b);    // escalón 1
+addBox(12, 10, 2, 2, 1.0, 0xb5651d);    // escalón 2 (salta desde el 1)
 addCylinder(-5, -6, 0.8, 3, 0x777788);  // columna
 addCylinder(3, -9, 0.8, 3, 0x777788);   // columna
 addCylinder(-10, 2, 1.2, 4, 0x2e7d32);  // "árbol"
 addBox(0, 14, 10, 0.6, 2.5, 0x6a7fa0);  // pared larga
 addBox(14, 4, 0.6, 8, 2.5, 0x6a7fa0);   // pared lateral
 
-function resolveCollisions(pos) {
+// Altura del suelo bajo un punto (0 o la parte de arriba de un cubo)
+function groundHeight(x, z) {
+    let h = 0;
     for (const c of colliders) {
+        if (c.type !== 'box') continue;
+        if (Math.abs(x - c.x) <= c.hw + 0.2 && Math.abs(z - c.z) <= c.hd + 0.2) h = Math.max(h, c.top);
+    }
+    return h;
+}
+
+function resolveCollisions(pos, feetY) {
+    for (const c of colliders) {
+        if (feetY >= c.top - 0.05) continue;   // si los pies están por encima, no choca (se sube encima)
         if (c.type === 'box') {
             // punto de la caja más cercano al personaje
             const nx = Math.max(c.x - c.hw, Math.min(pos.x, c.x + c.hw));
@@ -147,6 +163,10 @@ function resolveCollisions(pos) {
 // 3. Variables
 let mixer, character, current;
 let jumping = false;
+let baseY = 0;      // altura de los pies del modelo en el suelo
+let feetY = 0;      // altura actual de los pies sobre el suelo
+let velY = 0;       // velocidad vertical
+let onGround = true;
 let dancing = false;
 const actions = {};
 const clock = new THREE.Clock();
@@ -162,6 +182,7 @@ loader.load('personaje.fbx', function (object) {
     character.position.set(0, 0, 0);
     const box2 = new THREE.Box3().setFromObject(character);
     character.position.y -= box2.min.y;
+    baseY = character.position.y;
 
     const texLoader = new THREE.TextureLoader();
     const load = (url, srgb) => {
@@ -239,6 +260,7 @@ function loadAnim(name, file) {
                 for (let i = 0; i < v.length; i += 3) {
                     v[i]     = x0;   // X fija
                     v[i + 2] = z0;   // Z fija
+                    if (name === 'jump') v[i + 1] = v[1];   // la altura del salto la pone la física
                 }
             }
         });
@@ -247,6 +269,7 @@ function loadAnim(name, file) {
         if (name === 'jump') {
             actions[name].setLoop(THREE.LoopOnce, 1);   // se reproduce una sola vez
             actions[name].clampWhenFinished = true;
+            actions[name].timeScale = JUMP_ANIM_SPEED;
         }
         if (name === 'idle') playAction('idle');
     }, undefined, () => console.warn('No se pudo cargar ' + file));
@@ -262,8 +285,10 @@ function playAction(name) {
 
 function startJump() {
     const a = actions.jump;
-    if (!a || jumping) return;
+    if (!a || jumping || !onGround) return;
     jumping = true;
+    velY = JUMP_SPEED;
+    onGround = false;
     dancing = false;
     a.reset().fadeIn(0.1).play();
     if (current) current.fadeOut(0.1);
@@ -284,7 +309,7 @@ const joystick = nipplejs.create({
     zone: document.getElementById('joystick-zone'),
     mode: 'static',
     position: { left: '75px', bottom: '75px' },
-    color: 'white'
+    color: '#444444'
 });
 joystick.on('move', (evt, data) => {
     const mag = Math.min(data.force, 1);
@@ -331,7 +356,20 @@ function animate() {
             if (!jumping && !dancing) playAction('idle');
         }
 
-        resolveCollisions(character.position);
+        // Física vertical: gravedad, salto y aterrizaje sobre cubos
+        velY -= GRAVITY * delta;
+        feetY += velY * delta;
+        resolveCollisions(character.position, feetY);
+        const gh = groundHeight(character.position.x, character.position.z);
+        if (feetY <= gh) {
+            feetY = gh;
+            velY = 0;
+            if (!onGround) jumping = false;   // al aterrizar termina el salto
+            onGround = true;
+        } else {
+            onGround = false;
+        }
+        character.position.y = baseY + feetY;
 
         // La luz (y sus sombras) sigue al personaje
         dirLight.position.set(character.position.x + 5, 20, character.position.z + 10);
