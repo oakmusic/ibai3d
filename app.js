@@ -1,10 +1,10 @@
 // ===== Configuración =====
-const ASSET_VERSION = '1.0.6';
+const ASSET_VERSION = '1.0.9';
 const TEX = {
-    color:     'texture_pbr_20250901.png?v=' + ASSET_VERSION,
-    normal:    'texture_pbr_20250901_normal.png?v=' + ASSET_VERSION,
-    roughness: 'texture_pbr_20250901_roughness.png?v=' + ASSET_VERSION,
-    metallic:  'texture_pbr_20250901_metallic.png?v=' + ASSET_VERSION
+    color:     'texture_pbr_20250901.webp?v=' + ASSET_VERSION,
+    normal:    'texture_pbr_20250901_normal.webp?v=' + ASSET_VERSION,
+    roughness: 'texture_pbr_20250901_roughness.webp?v=' + ASSET_VERSION,
+    metallic:  'texture_pbr_20250901_metallic.webp?v=' + ASSET_VERSION
 };
 // 'basic'    = sin luces (test: si así se ve con color, la textura está bien)
 // 'standard' = con luces, normal y roughness
@@ -18,6 +18,14 @@ const JUMP_ANIM_SPEED = 1.5; // velocidad de la animación de salto
 const CAM_DIST = 3.5;     // distancia detrás del personaje (menos = más cerca)
 const CAM_HEIGHT = 1.8;   // altura de la cámara
 const CAM_LOOK = 1.0;     // altura del punto al que mira (1.0 = torso)
+
+// Precargar texturas inmediatamente en paralelo con la descarga del modelo
+const texLoader = new THREE.TextureLoader();
+const diffuseTex = texLoader.load(TEX.color);
+diffuseTex.encoding = THREE.sRGBEncoding;
+const normalTex = texLoader.load(TEX.normal);
+const roughnessTex = texLoader.load(TEX.roughness);
+const metallicTex = texLoader.load(TEX.metallic);
 
 // Mostrar cualquier error en pantalla
 function showError(msg) {
@@ -78,15 +86,15 @@ ground.receiveShadow = true;
 scene.add(ground);
 grid.position.y = 0.01;   // evita parpadeo con el suelo
 
-// Fondo panorámico 360° (foto equirectangular)
+// Fondo panorámico 360° optimizado en WebP
 let sky = null;
-new THREE.TextureLoader().load('fondo1.jpg', tex => {
+texLoader.load('fondo1.webp?v=' + ASSET_VERSION, tex => {
     tex.encoding = THREE.sRGBEncoding;
     const geo = new THREE.SphereGeometry(500, 60, 40);
     geo.scale(-1, 1, 1);   // se mira desde dentro, sin imagen en espejo
     sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex }));
     scene.add(sky);
-}, undefined, () => console.warn('No se encontró fondo1.jpg'));
+}, undefined, () => console.warn('No se encontró fondo1.webp'));
 
 function addBox(x, z, w, d, h, color) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d),
@@ -175,13 +183,14 @@ function resolveCollisions(pos, feetY) {
 // 3. Variables
 let mixer, character, current;
 let jumping = false;
-let baseY = 0;      // altura de los pies del modelo en el suelo
-let feetY = 0;      // altura actual de los pies sobre el suelo
+let baseY = 0;      // offset inicial para que los pies queden a Y=0
+let feetY = 0;      // altura actual de los pies sobre el suelo (física)
 let velY = 0;       // velocidad vertical
 let onGround = true;
 let dancing = false;
 const actions = {};
 const clock = new THREE.Clock();
+
 const loader = new THREE.FBXLoader();
 
 const MODEL_PATHS = {
@@ -215,16 +224,6 @@ loader.load(MODEL_PATHS.character, function (object) {
         if (obj.parent) obj.parent.remove(obj);
     });
 
-    const texLoader = new THREE.TextureLoader();
-
-    // Cargar las texturas PBR correctas de Ibai
-    const diffuseTex = texLoader.load(TEX.color);
-    diffuseTex.encoding = THREE.sRGBEncoding;
-
-    const normalTex = texLoader.load(TEX.normal);
-    const roughnessTex = texLoader.load(TEX.roughness);
-    const metallicTex = texLoader.load(TEX.metallic);
-
     character.traverse(child => {
         if (!child.isMesh) return;
         child.castShadow = true;
@@ -236,7 +235,7 @@ loader.load(MODEL_PATHS.character, function (object) {
             child.geometry.computeVertexNormals();
         }
 
-        // Crear material PBR con las texturas correctas de Ibai
+        // Crear material PBR con las texturas correctas de Ibai (precargadas en WebP)
         let mat;
         if (MATERIAL_MODE === 'basic') {
             mat = new THREE.MeshBasicMaterial({
@@ -275,12 +274,13 @@ loader.load(MODEL_PATHS.character, function (object) {
     loadAnim('walk', MODEL_PATHS.walk);
     loadAnim('jump', MODEL_PATHS.jump);
     loadAnim('dance', MODEL_PATHS.dance);
-
-    // Al terminar el salto, se vuelve a idle/walk
-    mixer.addEventListener('finished', e => {
-        if (e.action === actions.jump) jumping = false;
-    });
-}, undefined, function (error) {
+}, function (xhr) {
+    if (xhr.lengthComputable && xhr.total > 0) {
+        const percent = Math.min(100, Math.round((xhr.loaded / xhr.total) * 100));
+        const el = document.getElementById('loading');
+        if (el) el.textContent = 'Cargando personaje 3D... ' + percent + '%';
+    }
+}, function (error) {
     console.error('Error cargando personaje 3D:', error);
     showError('Error al cargar el personaje 3D (mira la consola)');
 });
@@ -288,31 +288,46 @@ loader.load(MODEL_PATHS.character, function (object) {
 function processAndAddAnim(name, clip) {
     if (!clip) return;
 
-    // Normalizar y ajustar cadera (Hips)
     clip.tracks.forEach(track => {
-        if (track.name.toLowerCase().endsWith('hips.position')) {
-            const v = track.values;
+        const tname = track.name.toLowerCase();
+        if (!tname.endsWith('hips.position')) return;
 
-            // Normalizar clips exportados en centímetros (Hips Y > 5.0)
-            // al estándar en metros del modelo base Idle.fbx (~0.55m)
-            if (v.length >= 2 && Math.abs(v[1]) > 5.0) {
-                for (let i = 0; i < v.length; i++) {
-                    v[i] *= 0.01;
-                }
-            }
+        const v = track.values;
+        if (v.length === 0) return;
 
-            const x0 = v[0], z0 = v[2];
-            for (let i = 0; i < v.length; i += 3) {
-                v[i]     = x0;   // X fija (in-place)
-                v[i + 2] = z0;   // Z fija (in-place)
-                if (name === 'jump') v[i + 1] = v[1];   // la física del juego controla el salto
+        // Normalizar clips exportados en centímetros (Hips Y > 5.0) al estándar en metros (~0.55m)
+        if (Math.abs(v[1]) > 5.0) {
+            for (let i = 0; i < v.length; i++) {
+                v[i] *= 0.01;
             }
         }
+
+        if (name === 'jump') {
+            // En el salto la física del motor controla la trayectoria vertical/horizontal.
+            // Fijamos la posición inicial de la cadera para que no se desplace fuera del personaje.
+            const x0 = v[0], y0 = v[1], z0 = v[2];
+            for (let i = 0; i < v.length; i += 3) {
+                v[i]     = x0;
+                v[i + 1] = y0;
+                v[i + 2] = z0;
+            }
+        } else if (name === 'walk') {
+            // En correr centramos X y Z para que sea in-place y no se desvíe lateralmente,
+            // conservando el rebote natural en Y del ciclo de carrera.
+            const x0 = v[0], z0 = v[2];
+            for (let i = 0; i < v.length; i += 3) {
+                v[i]     = x0;
+                v[i + 2] = z0;
+            }
+        }
+        // En 'idle' y 'dance': NO alteramos las coordenadas de Hips.position.
+        // La animación natural de Mixamo compensa las rotaciones de las piernas,
+        // manteniendo los pies anclados al suelo (< 3 mm) y eliminando el patinaje y bamboleo.
     });
 
     actions[name] = mixer.clipAction(clip);
     if (name === 'jump') {
-        actions[name].setLoop(THREE.LoopOnce, 1);   // se reproduce una sola vez
+        actions[name].setLoop(THREE.LoopOnce, 1);
         actions[name].clampWhenFinished = true;
         actions[name].timeScale = JUMP_ANIM_SPEED;
     }
@@ -329,9 +344,13 @@ function loadAnim(name, file) {
 
 function playAction(name) {
     const next = actions[name];
-    if (!next || next === current) return;
-    next.reset().fadeIn(0.25).play();
-    if (current) current.fadeOut(0.25);
+    if (!next) return;
+    if (current === next && next.isRunning()) return;
+
+    next.reset().setEffectiveWeight(1).fadeIn(0.2).play();
+    if (current && current !== next) {
+        current.fadeOut(0.2);
+    }
     current = next;
 }
 
@@ -342,8 +361,16 @@ function startJump() {
     velY = JUMP_SPEED;
     onGround = false;
     dancing = false;
-    a.reset().fadeIn(0.1).play();
-    if (current) current.fadeOut(0.1);
+
+    // Si había otra animación activa que no sea jump, desvanecerla
+    if (current && current !== a) {
+        current.fadeOut(0.15);
+    }
+    // Reiniciar y asegurar peso completo en jump (evita pose en T al saltar consecutivamente)
+    a.reset();
+    a.setEffectiveTimeScale(JUMP_ANIM_SPEED);
+    a.setEffectiveWeight(1);
+    a.fadeIn(0.15).play();
     current = a;
 }
 
@@ -356,6 +383,7 @@ function toggleDance() {
 // 5. Entrada: joystick + teclado
 const input = { x: 0, y: 0 };
 const keys = {};
+let jumpPressed = false;
 
 const joystick = nipplejs.create({
     zone: document.getElementById('joystick-zone'),
@@ -372,13 +400,32 @@ joystick.on('end', () => { input.x = 0; input.y = 0; });
 
 window.addEventListener('keydown', e => {
     keys[e.code] = true;
-    if (e.code === 'Space') { e.preventDefault(); startJump(); }
+    if (e.code === 'Space') {
+        e.preventDefault();
+        jumpPressed = true;
+        startJump();
+    }
     if (e.code === 'KeyB') toggleDance();
 });
-window.addEventListener('keyup', e => keys[e.code] = false);
+window.addEventListener('keyup', e => {
+    keys[e.code] = false;
+    if (e.code === 'Space') jumpPressed = false;
+});
 
 const jumpBtn = document.getElementById('jump-btn');
-jumpBtn.addEventListener('pointerdown', e => { e.preventDefault(); startJump(); });
+jumpBtn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    jumpPressed = true;
+    startJump();
+});
+jumpBtn.addEventListener('pointerup', e => {
+    e.preventDefault();
+    jumpPressed = false;
+});
+jumpBtn.addEventListener('pointercancel', e => {
+    e.preventDefault();
+    jumpPressed = false;
+});
 document.getElementById('dance-btn').addEventListener('pointerdown', e => { e.preventDefault(); toggleDance(); });
 
 // 6. Bucle del juego
@@ -416,8 +463,20 @@ function animate() {
         if (feetY <= gh) {
             feetY = gh;
             velY = 0;
-            if (!onGround) jumping = false;   // al aterrizar termina el salto
+            const wasInAir = !onGround;
             onGround = true;
+
+            if (wasInAir) {
+                jumping = false;
+                // Si el jugador mantiene pulsado el botón/tecla de salto, encadenar el siguiente salto
+                if (jumpPressed) {
+                    startJump();
+                } else if (mag > 0.1) {
+                    playAction('walk');
+                } else if (!dancing) {
+                    playAction('idle');
+                }
+            }
         } else {
             onGround = false;
         }
