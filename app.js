@@ -1,5 +1,5 @@
 // ===== Configuración =====
-const ASSET_VERSION = '1.0.10';
+const ASSET_VERSION = '1.0.11';
 const TEX = {
     color:     'texture_pbr_20250901.webp?v=' + ASSET_VERSION,
     normal:    'texture_pbr_20250901_normal.webp?v=' + ASSET_VERSION,

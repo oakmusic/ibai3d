@@ -92,10 +92,11 @@ Al estar montado el volumen en vivo en `/usr/share/nginx/html`, puedes modificar
 | **Animación Desplazamiento** | `resources/Running.fbx` (y symlink `walk.fbx`) | Animación de carrera para el joystick/teclas |
 | **Animación Salto** | `resources/Jumping.fbx` (y symlink `Jump.fbx`) | Animación de salto sincronizada con física |
 | **Animación Baile** | `resources/Dance.fbx` (y symlink `Dance.fbx`) | Animación de baile (botón Bailar o tecla B) |
-| **Textura Difusa (Color)** | `texture_pbr_20250901.png` | Mapa de color principal PBR |
-| **Textura Normales** | `texture_pbr_20250901_normal.png` | Mapa de relieve/normales |
-| **Textura Rugosidad** | `texture_pbr_20250901_roughness.png` | Mapa de rugosidad |
-| **Fondo / Escenario** | `fondo1.jpg` | Textura panorámica del cielo/entorno |
+| **Textura Difusa (Color)** | `texture_pbr_20250901.webp` | Mapa de color principal PBR (WebP optimizado) |
+| **Textura Normales** | `texture_pbr_20250901_normal.webp` | Mapa de relieve/normales (WebP optimizado) |
+| **Textura Rugosidad** | `texture_pbr_20250901_roughness.webp` | Mapa de rugosidad (WebP optimizado) |
+| **Textura Metálica** | `texture_pbr_20250901_metallic.webp` | Mapa de metalicidad (WebP optimizado) |
+| **Fondo / Escenario** | `fondo1.webp` | Textura panorámica del cielo/entorno (WebP optimizado) |
 | **Lógica del juego** | `app.js` | Configuración Three.js, controls y animación |
 | **PWA / Service Worker** | `sw.js` y `manifest.json` | Configuración PWA y caché offline |
 

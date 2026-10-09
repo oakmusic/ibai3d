@@ -1,7 +1,7 @@
 {
   "name": "ibai3d",
-  "version": "1.0.10",
-  "swCacheVersion": "juego-3d-v14",
+  "version": "1.0.11",
+  "swCacheVersion": "juego-3d-v15",
   "character": "resources/Idle.fbx",
   "materialMode": "standard",
   "diffuseTexture": "texture_pbr_20250901.webp",
