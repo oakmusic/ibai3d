@@ -1,0 +1,8 @@
+# Archivos locales y secretos
+.env
+.env.*
+*.log
+
+# Archivos de sistema operativo
+.DS_Store
+Thumbs.db
