@@ -1,14 +1,16 @@
 // ===== Configuración =====
+const ASSET_VERSION = '1.0.6';
 const TEX = {
-    color:     'texture_pbr_20250901.png',
-    normal:    'texture_pbr_20250901_normal.png',
-    roughness: 'texture_pbr_20250901_roughness.png'
+    color:     'texture_pbr_20250901.png?v=' + ASSET_VERSION,
+    normal:    'texture_pbr_20250901_normal.png?v=' + ASSET_VERSION,
+    roughness: 'texture_pbr_20250901_roughness.png?v=' + ASSET_VERSION,
+    metallic:  'texture_pbr_20250901_metallic.png?v=' + ASSET_VERSION
 };
 // 'basic'    = sin luces (test: si así se ve con color, la textura está bien)
 // 'standard' = con luces, normal y roughness
 // 'original' = deja el material que trae el propio FBX
-const MATERIAL_MODE = 'basic';
-const SPEED = 3.0;
+const MATERIAL_MODE = 'standard';
+const SPEED = 4.0;
 const CHAR_HEIGHT = 1.8;
 const GRAVITY = 18;          // fuerza de gravedad
 const JUMP_SPEED = 6;        // impulso del salto (altura aprox. = 6²/(2·18) = 1 unidad)
@@ -182,8 +184,16 @@ const actions = {};
 const clock = new THREE.Clock();
 const loader = new THREE.FBXLoader();
 
+const MODEL_PATHS = {
+    character: 'resources/Idle.fbx',
+    idle:      'resources/Idle.fbx',
+    walk:      'resources/Running.fbx',
+    jump:      'resources/Jumping.fbx',
+    dance:     'resources/Dance.fbx'
+};
+
 // 4. Cargar personaje
-loader.load('personaje.fbx', function (object) {
+loader.load(MODEL_PATHS.character, function (object) {
     document.getElementById('loading').style.display = 'none';
     character = object;
 
@@ -194,16 +204,26 @@ loader.load('personaje.fbx', function (object) {
     character.position.y -= box2.min.y;
     baseY = character.position.y;
 
+    // Eliminar luces o cámaras incrustadas en el FBX exportado
+    const strayObjects = [];
+    character.traverse(child => {
+        if (child.isLight || child.isCamera) {
+            strayObjects.push(child);
+        }
+    });
+    strayObjects.forEach(obj => {
+        if (obj.parent) obj.parent.remove(obj);
+    });
+
     const texLoader = new THREE.TextureLoader();
-    const load = (url, srgb) => {
-        const t = texLoader.load(url, undefined, undefined,
-            () => console.warn('No se encontró ' + url));
-        if (srgb) t.encoding = THREE.sRGBEncoding;
-        return t;
-    };
-    const colorMap     = load(TEX.color, true);
-    const normalMap    = load(TEX.normal, false);
-    const roughnessMap = load(TEX.roughness, false);
+
+    // Cargar las texturas PBR correctas de Ibai
+    const diffuseTex = texLoader.load(TEX.color);
+    diffuseTex.encoding = THREE.sRGBEncoding;
+
+    const normalTex = texLoader.load(TEX.normal);
+    const roughnessTex = texLoader.load(TEX.roughness);
+    const metallicTex = texLoader.load(TEX.metallic);
 
     character.traverse(child => {
         if (!child.isMesh) return;
@@ -211,31 +231,32 @@ loader.load('personaje.fbx', function (object) {
         child.receiveShadow = true;
         child.frustumCulled = false;
 
-        console.log('Mesh:', child.name,
-            '| UV:', !!child.geometry.attributes.uv,
-            '| normales:', !!child.geometry.attributes.normal,
-            '| skinned:', !!child.isSkinnedMesh);
+        // Calcular normales si el FBX no las traía de serie
+        if (child.geometry && !child.geometry.attributes.normal) {
+            child.geometry.computeVertexNormals();
+        }
 
-        if (MATERIAL_MODE === 'original') return;
-
+        // Crear material PBR con las texturas correctas de Ibai
         let mat;
         if (MATERIAL_MODE === 'basic') {
             mat = new THREE.MeshBasicMaterial({
-                map: colorMap,
+                map: diffuseTex,
                 side: THREE.DoubleSide,
                 skinning: !!child.isSkinnedMesh
             });
         } else {
             mat = new THREE.MeshStandardMaterial({
-                map: colorMap,
-                normalMap: normalMap,
-                roughnessMap: roughnessMap,
-                metalness: 0,
-                roughness: 1,
+                map:          diffuseTex,
+                normalMap:    normalTex,
+                roughnessMap: roughnessTex,
+                metalnessMap: metallicTex,
+                roughness:    1.0,
+                metalness:    1.0,
                 side: THREE.DoubleSide,
                 skinning: !!child.isSkinnedMesh
             });
         }
+
         child.material = Array.isArray(child.material)
             ? child.material.map(() => mat)
             : mat;
@@ -243,45 +264,66 @@ loader.load('personaje.fbx', function (object) {
 
     scene.add(character);
     mixer = new THREE.AnimationMixer(character);
-    loadAnim('idle', 'idle.fbx');
-    loadAnim('walk', 'walk.fbx');
-    loadAnim('jump', 'Jump.fbx');
-    loadAnim('dance', 'Dance.fbx');
+
+    // Cargar o procesar animaciones
+    if (object.animations && object.animations.length > 0) {
+        processAndAddAnim('idle', object.animations[0]);
+    } else {
+        loadAnim('idle', MODEL_PATHS.idle);
+    }
+
+    loadAnim('walk', MODEL_PATHS.walk);
+    loadAnim('jump', MODEL_PATHS.jump);
+    loadAnim('dance', MODEL_PATHS.dance);
 
     // Al terminar el salto, se vuelve a idle/walk
     mixer.addEventListener('finished', e => {
         if (e.action === actions.jump) jumping = false;
     });
 }, undefined, function (error) {
-    console.error('Error cargando personaje.fbx:', error);
-    showError('Error al cargar personaje.fbx (mira la consola)');
+    console.error('Error cargando personaje 3D:', error);
+    showError('Error al cargar el personaje 3D (mira la consola)');
 });
+
+function processAndAddAnim(name, clip) {
+    if (!clip) return;
+
+    // Normalizar y ajustar cadera (Hips)
+    clip.tracks.forEach(track => {
+        if (track.name.toLowerCase().endsWith('hips.position')) {
+            const v = track.values;
+
+            // Normalizar clips exportados en centímetros (Hips Y > 5.0)
+            // al estándar en metros del modelo base Idle.fbx (~0.55m)
+            if (v.length >= 2 && Math.abs(v[1]) > 5.0) {
+                for (let i = 0; i < v.length; i++) {
+                    v[i] *= 0.01;
+                }
+            }
+
+            const x0 = v[0], z0 = v[2];
+            for (let i = 0; i < v.length; i += 3) {
+                v[i]     = x0;   // X fija (in-place)
+                v[i + 2] = z0;   // Z fija (in-place)
+                if (name === 'jump') v[i + 1] = v[1];   // la física del juego controla el salto
+            }
+        }
+    });
+
+    actions[name] = mixer.clipAction(clip);
+    if (name === 'jump') {
+        actions[name].setLoop(THREE.LoopOnce, 1);   // se reproduce una sola vez
+        actions[name].clampWhenFinished = true;
+        actions[name].timeScale = JUMP_ANIM_SPEED;
+    }
+    if (name === 'idle') playAction('idle');
+}
 
 function loadAnim(name, file) {
     loader.load(file, obj => {
         const clip = obj.animations[0];
         if (!clip) return;
-
-        // Quitar el avance de la cadera (X y Z) para que la animación sea "in place"
-        clip.tracks.forEach(track => {
-            if (track.name.toLowerCase().endsWith('hips.position')) {
-                const v = track.values;
-                const x0 = v[0], z0 = v[2];
-                for (let i = 0; i < v.length; i += 3) {
-                    v[i]     = x0;   // X fija
-                    v[i + 2] = z0;   // Z fija
-                    if (name === 'jump') v[i + 1] = v[1];   // la altura del salto la pone la física
-                }
-            }
-        });
-
-        actions[name] = mixer.clipAction(clip);
-        if (name === 'jump') {
-            actions[name].setLoop(THREE.LoopOnce, 1);   // se reproduce una sola vez
-            actions[name].clampWhenFinished = true;
-            actions[name].timeScale = JUMP_ANIM_SPEED;
-        }
-        if (name === 'idle') playAction('idle');
+        processAndAddAnim(name, clip);
     }, undefined, () => console.warn('No se pudo cargar ' + file));
 }
 

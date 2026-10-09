@@ -1,5 +1,17 @@
 {
   "name": "ibai3d",
-  "version": "1.0.1",
-  "swCacheVersion": "juego-3d-v6"
+  "version": "1.0.6",
+  "swCacheVersion": "juego-3d-v11",
+  "character": "resources/Idle.fbx",
+  "materialMode": "standard",
+  "diffuseTexture": "texture_pbr_20250901.png",
+  "normalTexture": "texture_pbr_20250901_normal.png",
+  "roughnessTexture": "texture_pbr_20250901_roughness.png",
+  "metallicTexture": "texture_pbr_20250901_metallic.png",
+  "animations": {
+    "idle": "resources/Idle.fbx",
+    "walk": "resources/Running.fbx",
+    "jump": "resources/Jumping.fbx",
+    "dance": "resources/Dance.fbx"
+  }
 }

@@ -85,18 +85,18 @@ Cloudflare propagará automáticamente el DNS y la ruta en el daemon local en se
 
 Al estar montado el volumen en vivo en `/usr/share/nginx/html`, puedes modificar los recursos directamente en `/var/www/ibai3d`:
 
-| Recurso | Archivo actual | Notas |
+| Recurso | Archivo activo | Notas |
 | :--- | :--- | :--- |
-| **Modelo 3D del personaje** | `personaje.fbx` | Modelo en formato FBX con armadura/rigging |
-| **Animación Idle** | `idle.fbx` | Animación de espera |
-| **Animación Caminar** | `walk.fbx` / `andar.fbx` | Animación de paso |
-| **Animación Salto** | `Jump.fbx` | Animación de salto |
-| **Animación Baile** | `Dance.fbx` | Animación de baile |
-| **Textura Difusa (Color)** | `texture_pbr_20250901.png` | Mapa de color principal |
+| **Modelo 3D del personaje (skin)** | `resources/Idle.fbx` (y symlink `personaje.fbx`) | Modelo en pose idle con malla, esqueleto y skin |
+| **Animación Idle** | `resources/Idle.fbx` (y symlink `idle.fbx`) | Clip de animación de espera en reposo |
+| **Animación Desplazamiento** | `resources/Running.fbx` (y symlink `walk.fbx`) | Animación de carrera para el joystick/teclas |
+| **Animación Salto** | `resources/Jumping.fbx` (y symlink `Jump.fbx`) | Animación de salto sincronizada con física |
+| **Animación Baile** | `resources/Dance.fbx` (y symlink `Dance.fbx`) | Animación de baile (botón Bailar o tecla B) |
+| **Textura Difusa (Color)** | `texture_pbr_20250901.png` | Mapa de color principal PBR |
 | **Textura Normales** | `texture_pbr_20250901_normal.png` | Mapa de relieve/normales |
-| **Textura Rugosidad** | `texture_pbr_20250901_roughness.png` | Mapa de roughness |
-| **Fondo / Escenario** | `fondo1.jpg` | Textura o fondo del entorno |
-| **Lógica del juego** | `app.js` | Configuración Three.js y controles táctiles |
+| **Textura Rugosidad** | `texture_pbr_20250901_roughness.png` | Mapa de rugosidad |
+| **Fondo / Escenario** | `fondo1.jpg` | Textura panorámica del cielo/entorno |
+| **Lógica del juego** | `app.js` | Configuración Three.js, controls y animación |
 | **PWA / Service Worker** | `sw.js` y `manifest.json` | Configuración PWA y caché offline |
 
 > **Nota sobre caché:** Si sustituyes modelos o scripts, asegúrate de refrescar la caché del navegador (Ctrl + F5 o modo incógnito), o incrementa la constante de versión en `sw.js` (`CACHE_NAME`) para forzar la actualización de los clientes PWA.
