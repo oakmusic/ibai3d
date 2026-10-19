@@ -1,7 +1,7 @@
 {
   "name": "ibai3d",
-  "version": "1.0.11",
-  "swCacheVersion": "juego-3d-v15",
+  "version": "1.0.12",
+  "swCacheVersion": "juego-3d-v16",
   "character": "resources/Idle.fbx",
   "materialMode": "standard",
   "diffuseTexture": "texture_pbr_20250901.webp",
@@ -12,6 +12,11 @@
     "idle": "resources/Idle.fbx",
     "walk": "resources/Running.fbx",
     "jump": "resources/Jumping.fbx",
-    "dance": "resources/Dance.fbx"
+    "dance": "resources/Dance.fbx",
+    "fireball": "resources/animaciones/Fireball.fbx",
+    "gettingUp": "resources/animaciones/Getting Up.fbx",
+    "soccerTrip": "resources/animaciones/Soccer Trip.fbx",
+    "magicAreaAttack": "resources/animaciones/Standing 2H Magic Area Attack 02.fbx"
   }
 }
+

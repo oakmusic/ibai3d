@@ -6,21 +6,215 @@
     <title>Mi Personaje 3D PWA</title>
     <link rel="manifest" href="manifest.json">
     <style>
-        body { margin: 0; overflow: hidden; background-color: #87CEEB; touch-action: none; }
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; touch-action: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         canvas { display: block; }
         #joystick-zone { position: absolute; bottom: calc(10px + env(safe-area-inset-bottom)); left: 20px; width: 150px; height: 150px; z-index: 10; }
-        .action-btn { position: absolute; bottom: calc(25px + env(safe-area-inset-bottom)); width: 80px; height: 80px; border-radius: 50%; border: 3px solid #2b2b2b; background: rgba(70,70,70,0.75); color: white; font-family: sans-serif; font-size: 14px; font-weight: bold; z-index: 10; touch-action: none; user-select: none; -webkit-user-select: none; }
-        .action-btn:active { background: rgba(30,30,30,0.9); }
-        #jump-btn { right: 20px; }
-        #dance-btn { right: 115px; }
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-family: sans-serif; font-size: 20px; z-index: 20; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 10px; }
+        
+        /* Contenedor de botones de acción en la parte inferior derecha */
+        #actions-container {
+            position: absolute;
+            bottom: calc(15px + env(safe-area-inset-bottom));
+            right: 15px;
+            display: grid;
+            grid-template-columns: repeat(2, 60px);
+            grid-template-rows: repeat(3, 60px);
+            gap: 8px;
+            z-index: 10;
+            pointer-events: auto;
+        }
+
+        @media (min-width: 600px) {
+            #actions-container {
+                grid-template-columns: repeat(2, 68px);
+                grid-template-rows: repeat(3, 68px);
+                gap: 10px;
+                right: 20px;
+                bottom: calc(20px + env(safe-area-inset-bottom));
+            }
+        }
+
+        .action-btn {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.25);
+            background: rgba(30, 30, 35, 0.75);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            color: #ffffff;
+            font-family: inherit;
+            z-index: 10;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+            transition: transform 0.1s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+        }
+
+        .action-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.35);
+        }
+
+        .action-btn:active, .action-btn.active {
+            transform: scale(0.92) translateY(1px);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5), inset 0 2px 4px rgba(0, 0, 0, 0.4);
+        }
+
+        .action-btn.loading {
+            opacity: 0.5;
+        }
+
+        .action-btn.pending {
+            border-color: #fbbf24;
+            animation: pulseGlow 0.8s infinite alternate;
+        }
+
+        .btn-icon {
+            font-size: 18px;
+            line-height: 1;
+            margin-bottom: 2px;
+            pointer-events: none;
+        }
+
+        .btn-label {
+            font-size: 8.5px;
+            line-height: 1;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            pointer-events: none;
+            text-transform: uppercase;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+        }
+
+        @media (min-width: 600px) {
+            .btn-icon { font-size: 20px; }
+            .btn-label { font-size: 9.5px; }
+        }
+
+        .btn-key {
+            display: none;
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            background: rgba(0, 0, 0, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 6px;
+            padding: 1px 4px;
+            font-size: 8px;
+            font-weight: 800;
+            color: #f3f4f6;
+        }
+
+        @media (hover: hover) and (min-width: 600px) {
+            .btn-key { display: block; }
+        }
+
+        .btn-jump {
+            background: radial-gradient(circle at 30% 30%, rgba(37, 99, 235, 0.85), rgba(30, 58, 138, 0.95));
+            border-color: rgba(96, 165, 250, 0.5);
+        }
+        .btn-jump:active {
+            background: radial-gradient(circle at 30% 30%, rgba(29, 78, 216, 0.95), rgba(30, 58, 138, 1.0));
+        }
+
+        .btn-dance {
+            background: radial-gradient(circle at 30% 30%, rgba(147, 51, 234, 0.85), rgba(88, 28, 135, 0.95));
+            border-color: rgba(192, 132, 252, 0.5);
+        }
+        .btn-dance.is-dancing {
+            border-color: #f43f5e;
+            box-shadow: 0 0 15px rgba(244, 63, 94, 0.7);
+            animation: pulseGlow 1.2s infinite alternate;
+        }
+
+        .btn-fireball {
+            background: radial-gradient(circle at 30% 30%, rgba(234, 88, 12, 0.85), rgba(154, 52, 18, 0.95));
+            border-color: rgba(251, 146, 60, 0.5);
+        }
+        .btn-fireball.active {
+            border-color: #fb923c;
+            box-shadow: 0 0 15px rgba(249, 115, 22, 0.8);
+        }
+
+        .btn-magic {
+            background: radial-gradient(circle at 30% 30%, rgba(192, 38, 211, 0.85), rgba(112, 26, 117, 0.95));
+            border-color: rgba(232, 121, 249, 0.5);
+        }
+        .btn-magic.active {
+            border-color: #e879f9;
+            box-shadow: 0 0 15px rgba(217, 70, 239, 0.8);
+        }
+
+        .btn-trip {
+            background: radial-gradient(circle at 30% 30%, rgba(217, 119, 6, 0.85), rgba(146, 64, 14, 0.95));
+            border-color: rgba(251, 191, 36, 0.5);
+        }
+        .btn-trip.active {
+            border-color: #fcd34d;
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.8);
+        }
+
+        .btn-getup {
+            background: radial-gradient(circle at 30% 30%, rgba(13, 148, 136, 0.85), rgba(19, 78, 74, 0.95));
+            border-color: rgba(45, 212, 191, 0.5);
+        }
+        .btn-getup.active {
+            border-color: #2dd4bf;
+            box-shadow: 0 0 15px rgba(20, 184, 166, 0.8);
+        }
+
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 6px rgba(244, 63, 94, 0.4); }
+            100% { box-shadow: 0 0 18px rgba(244, 63, 94, 0.85); }
+        }
+
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-family: inherit; font-size: 20px; z-index: 20; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 10px; }
     </style>
 </head>
 <body>
     <div id="loading">Cargando personaje 3D...</div>
     <div id="joystick-zone"></div>
-    <button id="dance-btn" class="action-btn">BAILAR</button>
-    <button id="jump-btn" class="action-btn">SALTAR</button>
+
+    <div id="actions-container">
+        <button id="trip-btn" class="action-btn btn-trip loading" title="Tropezón / Caída">
+            <span class="btn-icon">🤕</span>
+            <span class="btn-label">CAÍDA</span>
+            <span class="btn-key">3</span>
+        </button>
+        <button id="getup-btn" class="action-btn btn-getup loading" title="Levantarse">
+            <span class="btn-icon">⬆️</span>
+            <span class="btn-label">LEVANTAR</span>
+            <span class="btn-key">4</span>
+        </button>
+        <button id="fireball-btn" class="action-btn btn-fireball loading" title="Bola de Fuego">
+            <span class="btn-icon">🔥</span>
+            <span class="btn-label">FUEGO</span>
+            <span class="btn-key">1</span>
+        </button>
+        <button id="magic-btn" class="action-btn btn-magic loading" title="Ataque Mágico de Área">
+            <span class="btn-icon">🔮</span>
+            <span class="btn-label">ÁREA</span>
+            <span class="btn-key">2</span>
+        </button>
+        <button id="dance-btn" class="action-btn btn-dance" title="Bailar">
+            <span class="btn-icon">💃</span>
+            <span class="btn-label">BAILAR</span>
+            <span class="btn-key">B</span>
+        </button>
+        <button id="jump-btn" class="action-btn btn-jump" title="Saltar">
+            <span class="btn-icon">🦘</span>
+            <span class="btn-label">SALTAR</span>
+            <span class="btn-key">Espacio</span>
+        </button>
+    </div>
 
     <!-- Librerías (el orden importa: fflate antes de FBXLoader) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -32,7 +226,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 
     <!-- Archivo principal del juego -->
-    <script src="app.js?v=1.0.11"></script>
+    <script src="app.js?v=1.0.12"></script>
 
     <!-- Activar la PWA -->
     <script>

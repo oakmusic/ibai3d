@@ -1,5 +1,5 @@
 // ===== Configuración =====
-const ASSET_VERSION = '1.0.11';
+const ASSET_VERSION = '1.0.12';
 const TEX = {
     color:     'texture_pbr_20250901.webp?v=' + ASSET_VERSION,
     normal:    'texture_pbr_20250901_normal.webp?v=' + ASSET_VERSION,
@@ -188,6 +188,9 @@ let feetY = 0;      // altura actual de los pies sobre el suelo (física)
 let velY = 0;       // velocidad vertical
 let onGround = true;
 let dancing = false;
+let currentAction = null;
+let tripTimeout = null;
+let pendingAction = null;
 const actions = {};
 const clock = new THREE.Clock();
 
@@ -198,7 +201,11 @@ const MODEL_PATHS = {
     idle:      'resources/Idle.fbx',
     walk:      'resources/Running.fbx',
     jump:      'resources/Jumping.fbx',
-    dance:     'resources/Dance.fbx'
+    dance:     'resources/Dance.fbx',
+    fireball:  'resources/animaciones/Fireball.fbx',
+    getup:     'resources/animaciones/Getting%20Up.fbx',
+    trip:      'resources/animaciones/Soccer%20Trip.fbx',
+    magic:     'resources/animaciones/Standing%202H%20Magic%20Area%20Attack%2002.fbx'
 };
 
 // 4. Cargar personaje
@@ -264,6 +271,35 @@ loader.load(MODEL_PATHS.character, function (object) {
     scene.add(character);
     mixer = new THREE.AnimationMixer(character);
 
+    // Evento de fin de animación para acciones únicas
+    mixer.addEventListener('finished', e => {
+        if (currentAction && e.action === actions[currentAction]) {
+            const finishedAction = currentAction;
+            const btn = document.getElementById(finishedAction + '-btn');
+            if (btn) btn.classList.remove('active');
+
+            if (finishedAction === 'trip') {
+                // Mantener al personaje en el suelo un momento antes de volver a idle
+                tripTimeout = setTimeout(() => {
+                    if (currentAction === 'trip') {
+                        currentAction = null;
+                        if (!jumping) {
+                            const isMoving = Math.hypot(input.x, input.y) > 0.1 || keys.KeyW || keys.KeyS || keys.KeyA || keys.KeyD;
+                            playAction(isMoving ? 'walk' : 'idle');
+                        }
+                    }
+                }, 1200);
+                return;
+            }
+
+            currentAction = null;
+            if (!jumping) {
+                const isMoving = Math.hypot(input.x, input.y) > 0.1 || keys.KeyW || keys.KeyS || keys.KeyA || keys.KeyD;
+                playAction(isMoving ? 'walk' : 'idle');
+            }
+        }
+    });
+
     // Cargar o procesar animaciones
     if (object.animations && object.animations.length > 0) {
         processAndAddAnim('idle', object.animations[0]);
@@ -271,9 +307,25 @@ loader.load(MODEL_PATHS.character, function (object) {
         loadAnim('idle', MODEL_PATHS.idle);
     }
 
-    loadAnim('walk', MODEL_PATHS.walk);
-    loadAnim('jump', MODEL_PATHS.jump);
-    loadAnim('dance', MODEL_PATHS.dance);
+    // Cola de carga secuencial para garantizar máxima fluidez
+    const animQueue = [
+        { name: 'walk', file: MODEL_PATHS.walk },
+        { name: 'jump', file: MODEL_PATHS.jump },
+        { name: 'dance', file: MODEL_PATHS.dance },
+        { name: 'fireball', file: MODEL_PATHS.fireball },
+        { name: 'trip', file: MODEL_PATHS.trip },
+        { name: 'getup', file: MODEL_PATHS.getup },
+        { name: 'magic', file: MODEL_PATHS.magic }
+    ];
+
+    function loadNextAnim() {
+        if (animQueue.length === 0) return;
+        const next = animQueue.shift();
+        loadAnim(next.name, next.file, () => {
+            setTimeout(loadNextAnim, 60);
+        });
+    }
+    loadNextAnim();
 }, function (xhr) {
     if (xhr.lengthComputable && xhr.total > 0) {
         const percent = Math.min(100, Math.round((xhr.loaded / xhr.total) * 100));
@@ -311,18 +363,16 @@ function processAndAddAnim(name, clip) {
                 v[i + 1] = y0;
                 v[i + 2] = z0;
             }
-        } else if (name === 'walk') {
-            // En correr centramos X y Z para que sea in-place y no se desvíe lateralmente,
-            // conservando el rebote natural en Y del ciclo de carrera.
+        } else if (name === 'walk' || name === 'trip') {
+            // En correr y en caída centramos X y Z para que sea in-place y no se desvíe ni teletransporte,
+            // conservando el movimiento en Y (caída al suelo en tropiezo, rebote en carrera).
             const x0 = v[0], z0 = v[2];
             for (let i = 0; i < v.length; i += 3) {
                 v[i]     = x0;
                 v[i + 2] = z0;
             }
         }
-        // En 'idle' y 'dance': NO alteramos las coordenadas de Hips.position.
-        // La animación natural de Mixamo compensa las rotaciones de las piernas,
-        // manteniendo los pies anclados al suelo (< 3 mm) y eliminando el patinaje y bamboleo.
+        // En 'idle', 'dance', 'fireball', 'getup' y 'magic': NO alteramos las coordenadas de Hips.position.
     });
 
     actions[name] = mixer.clipAction(clip);
@@ -330,16 +380,45 @@ function processAndAddAnim(name, clip) {
         actions[name].setLoop(THREE.LoopOnce, 1);
         actions[name].clampWhenFinished = true;
         actions[name].timeScale = JUMP_ANIM_SPEED;
+    } else if (name === 'fireball' || name === 'getup' || name === 'trip' || name === 'magic') {
+        actions[name].setLoop(THREE.LoopOnce, 1);
+        actions[name].clampWhenFinished = true;
     }
     if (name === 'idle') playAction('idle');
+
+    // Desactivar clase loading del botón correspondiente
+    const btn = document.getElementById(name + '-btn');
+    if (btn) {
+        btn.classList.remove('loading');
+        btn.classList.remove('pending');
+    }
+
+    // Si se solicitó la acción mientras cargaba, ejecutarla
+    if (pendingAction === name) {
+        pendingAction = null;
+        playCustomAction(name);
+    }
 }
 
-function loadAnim(name, file) {
+function loadAnim(name, file, onComplete) {
     loader.load(file, obj => {
         const clip = obj.animations[0];
-        if (!clip) return;
-        processAndAddAnim(name, clip);
-    }, undefined, () => console.warn('No se pudo cargar ' + file));
+        if (clip) {
+            processAndAddAnim(name, clip);
+        }
+        if (onComplete) onComplete();
+    }, undefined, err => {
+        console.warn('No se pudo cargar ' + file, err);
+        if (onComplete) onComplete();
+    });
+}
+
+function stopDancing() {
+    if (dancing) {
+        dancing = false;
+        const danceBtn = document.getElementById('dance-btn');
+        if (danceBtn) danceBtn.classList.remove('is-dancing');
+    }
 }
 
 function playAction(name) {
@@ -354,13 +433,58 @@ function playAction(name) {
     current = next;
 }
 
+function playCustomAction(name) {
+    if (jumping || !onGround) return;
+    const a = actions[name];
+    if (!a) {
+        pendingAction = name;
+        const btn = document.getElementById(name + '-btn');
+        if (btn) btn.classList.add('pending');
+        return;
+    }
+    pendingAction = null;
+
+    if (tripTimeout) {
+        clearTimeout(tripTimeout);
+        tripTimeout = null;
+    }
+
+    if (currentAction) {
+        const oldBtn = document.getElementById(currentAction + '-btn');
+        if (oldBtn) oldBtn.classList.remove('active');
+    }
+
+    stopDancing();
+    currentAction = name;
+    const newBtn = document.getElementById(name + '-btn');
+    if (newBtn) newBtn.classList.add('active');
+
+    if (current && current !== a) {
+        current.fadeOut(0.15);
+    }
+
+    a.reset();
+    a.setEffectiveWeight(1);
+    a.fadeIn(0.15).play();
+    current = a;
+}
+
 function startJump() {
     const a = actions.jump;
     if (!a || jumping || !onGround) return;
+    if (tripTimeout) {
+        clearTimeout(tripTimeout);
+        tripTimeout = null;
+    }
+    if (currentAction) {
+        const btn = document.getElementById(currentAction + '-btn');
+        if (btn) btn.classList.remove('active');
+        currentAction = null;
+    }
+    stopDancing();
     jumping = true;
     velY = JUMP_SPEED;
     onGround = false;
-    dancing = false;
 
     // Si había otra animación activa que no sea jump, desvanecerla
     if (current && current !== a) {
@@ -376,7 +500,18 @@ function startJump() {
 
 function toggleDance() {
     if (!actions.dance || jumping) return;
+    if (tripTimeout) {
+        clearTimeout(tripTimeout);
+        tripTimeout = null;
+    }
+    if (currentAction) {
+        const btn = document.getElementById(currentAction + '-btn');
+        if (btn) btn.classList.remove('active');
+        currentAction = null;
+    }
     dancing = !dancing;
+    const danceBtn = document.getElementById('dance-btn');
+    if (danceBtn) danceBtn.classList.toggle('is-dancing', dancing);
     playAction(dancing ? 'dance' : 'idle');
 }
 
@@ -406,6 +541,10 @@ window.addEventListener('keydown', e => {
         startJump();
     }
     if (e.code === 'KeyB') toggleDance();
+    if (e.code === 'Digit1' || e.code === 'KeyF') playCustomAction('fireball');
+    if (e.code === 'Digit2' || e.code === 'KeyM') playCustomAction('magic');
+    if (e.code === 'Digit3' || e.code === 'KeyT') playCustomAction('trip');
+    if (e.code === 'Digit4' || e.code === 'KeyG' || e.code === 'KeyL') playCustomAction('getup');
 });
 window.addEventListener('keyup', e => {
     keys[e.code] = false;
@@ -413,20 +552,44 @@ window.addEventListener('keyup', e => {
 });
 
 const jumpBtn = document.getElementById('jump-btn');
-jumpBtn.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    jumpPressed = true;
-    startJump();
+if (jumpBtn) {
+    jumpBtn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        jumpPressed = true;
+        startJump();
+    });
+    jumpBtn.addEventListener('pointerup', e => {
+        e.preventDefault();
+        jumpPressed = false;
+    });
+    jumpBtn.addEventListener('pointercancel', e => {
+        e.preventDefault();
+        jumpPressed = false;
+    });
+}
+
+const danceBtn = document.getElementById('dance-btn');
+if (danceBtn) {
+    danceBtn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        toggleDance();
+    });
+}
+
+// Botones de animaciones adicionales
+[
+    { id: 'fireball-btn', name: 'fireball' },
+    { id: 'magic-btn',    name: 'magic' },
+    { id: 'trip-btn',     name: 'trip' },
+    { id: 'getup-btn',    name: 'getup' }
+].forEach(({ id, name }) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        playCustomAction(name);
+    });
 });
-jumpBtn.addEventListener('pointerup', e => {
-    e.preventDefault();
-    jumpPressed = false;
-});
-jumpBtn.addEventListener('pointercancel', e => {
-    e.preventDefault();
-    jumpPressed = false;
-});
-document.getElementById('dance-btn').addEventListener('pointerdown', e => { e.preventDefault(); toggleDance(); });
 
 // 6. Bucle del juego
 function animate() {
@@ -449,10 +612,17 @@ function animate() {
             const len = Math.hypot(dx, dz);
             character.position.x += (dx / len) * mag * SPEED * delta;
             character.position.z += (dz / len) * mag * SPEED * delta;
-            dancing = false;   // moverse corta el baile
+            
+            stopDancing();
+            if (currentAction) {
+                if (tripTimeout) { clearTimeout(tripTimeout); tripTimeout = null; }
+                const actBtn = document.getElementById(currentAction + '-btn');
+                if (actBtn) actBtn.classList.remove('active');
+                currentAction = null;
+            }
             if (!jumping) playAction('walk');
         } else {
-            if (!jumping && !dancing) playAction('idle');
+            if (!jumping && !dancing && !currentAction) playAction('idle');
         }
 
         // Física vertical: gravedad, salto y aterrizaje sobre cubos
@@ -473,7 +643,7 @@ function animate() {
                     startJump();
                 } else if (mag > 0.1) {
                     playAction('walk');
-                } else if (!dancing) {
+                } else if (!dancing && !currentAction) {
                     playAction('idle');
                 }
             }
